@@ -59,6 +59,8 @@
             const [unitPrice, setUnitPrice] = useState('');
             const [itemTotal, setItemTotal] = useState('');
             const [nextGroupId, setNextGroupId] = useState(1);
+            const [duplicateCount, setDuplicateCount] = useState(0);
+            const [lastSelectedRow, setLastSelectedRow] = useState(null);
             
             const fileInputRef = useRef(null);
 
@@ -110,6 +112,8 @@
                         
                         setInvoiceData(jsonData);
                         setSelectedRow(null);
+                        setDuplicateCount(0);
+                        setLastSelectedRow(null);
                         setMessage({ type: 'success', text: `Loaded ${jsonData.length} rows from ${file.name}` });
                     } catch (error) {
                         setMessage({ type: 'error', text: 'Error reading file: ' + error.message });
@@ -175,6 +179,12 @@
                     return;
                 }
 
+                // Reset duplicate count if we've selected a different row
+                if (lastSelectedRow !== selectedRow) {
+                    setDuplicateCount(0);
+                    setLastSelectedRow(selectedRow);
+                }
+
                 const rowToDuplicate = invoiceData[selectedRow];
                 const partNumber = rowToDuplicate.BuyerPartNumber;
                 
@@ -231,19 +241,24 @@
                     }
                 }
 
-                // Insert the updated original row and new row
+                // Insert the updated original row and new row at the correct position
+                // to maintain creation order of duplicates
+                const insertPosition = selectedRow + duplicateCount + 1;
+                
                 const newData = hasCustomValues ? [
                     ...invoiceData.slice(0, selectedRow),
                     updatedOriginalRow,
+                    ...invoiceData.slice(selectedRow + 1, insertPosition),
                     newRow,
-                    ...invoiceData.slice(selectedRow + 1)
+                    ...invoiceData.slice(insertPosition)
                 ] : [
-                    ...invoiceData.slice(0, selectedRow + 1),
+                    ...invoiceData.slice(0, insertPosition),
                     newRow,
-                    ...invoiceData.slice(selectedRow + 1)
+                    ...invoiceData.slice(insertPosition)
                 ];
 
                 setInvoiceData(newData);
+                setDuplicateCount(duplicateCount + 1);
                 
                 const materialLabel = materialType === 'aluminum' ? 'Aluminum' : 'Steel';
                 let messageText = tariffResult.usingDefault 
@@ -255,7 +270,6 @@
                 }
                 
                 setMessage({ type: 'success', text: messageText });
-                setSelectedRow(selectedRow + 1); // Select the newly created row
                 
                 // Clear the input fields after duplication
                 setQuantity('');
@@ -471,7 +485,13 @@
                                             {invoiceData.map((row, index) => (
                                                 <tr
                                                     key={index}
-                                                    onClick={() => setSelectedRow(index)}
+                                                    onClick={() => {
+                                                        setSelectedRow(index);
+                                                        if (lastSelectedRow !== index) {
+                                                            setDuplicateCount(0);
+                                                            setLastSelectedRow(index);
+                                                        }
+                                                    }}
                                                     className={`cursor-pointer transition-colors ${
                                                         selectedRow === index
                                                             ? 'bg-blue-100 hover:bg-blue-200'
