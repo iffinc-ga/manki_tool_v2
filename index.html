@@ -58,6 +58,7 @@
             const [quantity, setQuantity] = useState('');
             const [unitPrice, setUnitPrice] = useState('');
             const [itemTotal, setItemTotal] = useState('');
+            const [nextGroupId, setNextGroupId] = useState(1);
             
             const fileInputRef = useRef(null);
 
@@ -268,9 +269,12 @@
                     return;
                 }
 
-                // Process the data to format dates correctly
+                // Process the data to format dates correctly and remove internal properties
                 const processedData = invoiceData.map(row => {
                     const newRow = { ...row };
+                    
+                    // Remove internal tracking properties
+                    delete newRow._duplicateGroupId;
                     
                     // Format date columns
                     const dateColumns = ['InvoiceDate', 'PO_Date', 'DateOfExport'];
