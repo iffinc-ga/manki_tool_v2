@@ -309,7 +309,7 @@
                         for (let row = 1; row <= range.e.r; row++) {
                             const cellAddress = XLSX.utils.encode_cell({ r: row, c: colIndex });
                             if (worksheet[cellAddress]) {
-                                worksheet[cellAddress].z = 'yyyy-mm-dd';
+                                worksheet[cellAddress].z = 'mm/dd/yyyy';
                                 worksheet[cellAddress].t = 'd';
                             }
                         }
