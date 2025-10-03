@@ -276,18 +276,22 @@
                     // Remove internal tracking properties
                     delete newRow._duplicateGroupId;
                     
-                    // Format date columns
+                    // Format date columns - convert to actual Date objects
                     const dateColumns = ['InvoiceDate', 'PO_Date', 'DateOfExport'];
                     dateColumns.forEach(col => {
-                        if (newRow[col] && newRow[col] instanceof Date) {
-                            // Keep as Date object for Excel
-                            newRow[col] = newRow[col];
-                        } else if (newRow[col] && typeof newRow[col] === 'string') {
-                            // Try to parse string dates
-                            const date = new Date(newRow[col]);
-                            if (!isNaN(date.getTime())) {
-                                newRow[col] = date;
+                        if (newRow[col]) {
+                            if (typeof newRow[col] === 'number') {
+                                // Excel serial date number
+                                const date = XLSX.SSF.parse_date_code(newRow[col]);
+                                newRow[col] = new Date(date.y, date.m - 1, date.d);
+                            } else if (typeof newRow[col] === 'string') {
+                                // String date
+                                const date = new Date(newRow[col]);
+                                if (!isNaN(date.getTime())) {
+                                    newRow[col] = date;
+                                }
                             }
+                            // If already a Date object, keep it
                         }
                     });
                     
@@ -296,21 +300,18 @@
 
                 const worksheet = XLSX.utils.json_to_sheet(processedData);
                 
-                // Set date format for date columns
-                const dateColumns = ['InvoiceDate', 'PO_Date', 'DateOfExport'];
+                // Apply mm/dd/yyyy format to date columns
                 const range = XLSX.utils.decode_range(worksheet['!ref']);
+                const header = XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0];
                 
-                // Find column indices for date columns
-                const firstRow = XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0];
-                dateColumns.forEach(dateCol => {
-                    const colIndex = firstRow.indexOf(dateCol);
+                ['InvoiceDate', 'PO_Date', 'DateOfExport'].forEach(dateCol => {
+                    const colIndex = header.indexOf(dateCol);
                     if (colIndex !== -1) {
-                        // Apply date format to all cells in this column
+                        const colLetter = XLSX.utils.encode_col(colIndex);
                         for (let row = 1; row <= range.e.r; row++) {
-                            const cellAddress = XLSX.utils.encode_cell({ r: row, c: colIndex });
-                            if (worksheet[cellAddress]) {
+                            const cellAddress = `${colLetter}${row + 1}`;
+                            if (worksheet[cellAddress] && worksheet[cellAddress].t !== 's') {
                                 worksheet[cellAddress].z = 'mm/dd/yyyy';
-                                worksheet[cellAddress].t = 'd';
                             }
                         }
                     }
