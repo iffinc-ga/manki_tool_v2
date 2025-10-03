@@ -190,6 +190,10 @@
                 newRow.BuyerPartNumber = tariffResult.value;
                 newRow.SupplierPartNumber = tariffResult.value;
 
+                // Check if custom values were provided
+                const hasCustomValues = quantity !== '' || unitPrice !== '' || itemTotal !== '';
+                let newRowItemTotal = rowToDuplicate.ItemTotal; // Default to original
+
                 // Apply custom values if provided, otherwise keep original values
                 if (quantity !== '') {
                     newRow.Quantity = parseFloat(quantity);
@@ -199,13 +203,40 @@
                 }
                 if (itemTotal !== '') {
                     newRow.ItemTotal = parseFloat(itemTotal);
+                    newRowItemTotal = parseFloat(itemTotal);
                 } else if (quantity !== '' && unitPrice !== '') {
                     // Auto-calculate ItemTotal if Quantity and UnitPrice are provided but ItemTotal is not
                     newRow.ItemTotal = parseFloat(quantity) * parseFloat(unitPrice);
+                    newRowItemTotal = parseFloat(quantity) * parseFloat(unitPrice);
+                } else if (quantity !== '' || unitPrice !== '') {
+                    // If only one of quantity or unitPrice is provided, recalculate ItemTotal
+                    const finalQuantity = quantity !== '' ? parseFloat(quantity) : rowToDuplicate.Quantity;
+                    const finalUnitPrice = unitPrice !== '' ? parseFloat(unitPrice) : rowToDuplicate.UnitPrice;
+                    newRow.ItemTotal = finalQuantity * finalUnitPrice;
+                    newRowItemTotal = finalQuantity * finalUnitPrice;
                 }
 
-                // Insert the new row after the selected row
-                const newData = [
+                // If custom values were provided, reduce the original row's ItemTotal
+                let updatedOriginalRow = rowToDuplicate;
+                if (hasCustomValues) {
+                    updatedOriginalRow = { ...rowToDuplicate };
+                    updatedOriginalRow.ItemTotal = (rowToDuplicate.ItemTotal || 0) - newRowItemTotal;
+                    
+                    // Also update quantity if only quantity was changed
+                    if (quantity !== '' && unitPrice === '' && itemTotal === '') {
+                        const remainingQty = (rowToDuplicate.Quantity || 0) - parseFloat(quantity);
+                        updatedOriginalRow.Quantity = remainingQty;
+                        updatedOriginalRow.ItemTotal = remainingQty * (rowToDuplicate.UnitPrice || 0);
+                    }
+                }
+
+                // Insert the updated original row and new row
+                const newData = hasCustomValues ? [
+                    ...invoiceData.slice(0, selectedRow),
+                    updatedOriginalRow,
+                    newRow,
+                    ...invoiceData.slice(selectedRow + 1)
+                ] : [
                     ...invoiceData.slice(0, selectedRow + 1),
                     newRow,
                     ...invoiceData.slice(selectedRow + 1)
@@ -214,9 +245,13 @@
                 setInvoiceData(newData);
                 
                 const materialLabel = materialType === 'aluminum' ? 'Aluminum' : 'Steel';
-                const messageText = tariffResult.usingDefault 
+                let messageText = tariffResult.usingDefault 
                     ? `Row duplicated for ${materialLabel} with default value. Tariff ${tariffResult.tariff} not found in mappings.`
                     : `Row duplicated for ${materialLabel}! Applied: ${tariffResult.value} (Tariff: ${tariffResult.tariff})`;
+                
+                if (hasCustomValues) {
+                    messageText += ` Original row's ItemTotal reduced by ${newRowItemTotal.toFixed(2)}.`;
+                }
                 
                 setMessage({ type: 'success', text: messageText });
                 setSelectedRow(selectedRow + 1); // Select the newly created row
