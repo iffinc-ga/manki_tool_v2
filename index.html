@@ -211,6 +211,7 @@
                 // Check if custom values were provided
                 const hasCustomValues = quantity !== '' || unitPrice !== '' || itemTotal !== '';
                 let newRowItemTotal = rowToDuplicate.ItemTotal; // Default to original
+                let subtractedQuantity = 0;
 
                 // Apply custom values if provided, otherwise keep original values
                 if (quantity !== '') {
@@ -240,11 +241,16 @@
                     updatedOriginalRow = { ...rowToDuplicate };
                     updatedOriginalRow.ItemTotal = (rowToDuplicate.ItemTotal || 0) - newRowItemTotal;
                     
+                    // Store the subtracted amount on the duplicate for restoration later
+                    newRow._subtractedItemTotal = newRowItemTotal;
+                    
                     // Also update quantity if only quantity was changed
                     if (quantity !== '' && unitPrice === '' && itemTotal === '') {
-                        const remainingQty = (rowToDuplicate.Quantity || 0) - parseFloat(quantity);
+                        subtractedQuantity = parseFloat(quantity);
+                        const remainingQty = (rowToDuplicate.Quantity || 0) - subtractedQuantity;
                         updatedOriginalRow.Quantity = remainingQty;
                         updatedOriginalRow.ItemTotal = remainingQty * (rowToDuplicate.UnitPrice || 0);
+                        newRow._subtractedQuantity = subtractedQuantity;
                     }
                 }
 
@@ -297,6 +303,8 @@
                     // Remove internal tracking properties
                     delete newRow._duplicateGroupId;
                     delete newRow._isDuplicate;
+                    delete newRow._subtractedItemTotal;
+                    delete newRow._subtractedQuantity;
                     
                     // Format date columns - convert to actual Date objects
                     const dateColumns = ['InvoiceDate', 'PO_Date', 'DateOfExport'];
@@ -357,8 +365,34 @@
                     return;
                 }
 
-                const newData = invoiceData.filter((_, i) => i !== index);
-                setInvoiceData(newData);
+                const newData = [...invoiceData];
+                
+                // If this duplicate had custom values that modified the original, restore them
+                if (rowToDelete._subtractedItemTotal !== undefined) {
+                    // Find the original row by searching backwards for the first non-duplicate
+                    let originalRowIndex = -1;
+                    for (let i = index - 1; i >= 0; i--) {
+                        if (!newData[i]._isDuplicate) {
+                            originalRowIndex = i;
+                            break;
+                        }
+                    }
+                    
+                    if (originalRowIndex !== -1) {
+                        // Restore the ItemTotal to the original row
+                        newData[originalRowIndex] = { ...newData[originalRowIndex] };
+                        newData[originalRowIndex].ItemTotal = (newData[originalRowIndex].ItemTotal || 0) + rowToDelete._subtractedItemTotal;
+                        
+                        // Restore the Quantity if it was also subtracted
+                        if (rowToDelete._subtractedQuantity !== undefined) {
+                            newData[originalRowIndex].Quantity = (newData[originalRowIndex].Quantity || 0) + rowToDelete._subtractedQuantity;
+                        }
+                    }
+                }
+                
+                // Remove the duplicate row
+                const finalData = newData.filter((_, i) => i !== index);
+                setInvoiceData(finalData);
                 
                 // Adjust selected row if necessary
                 if (selectedRow === index) {
@@ -372,7 +406,7 @@
                     setDuplicateCount(duplicateCount - 1);
                 }
                 
-                setMessage({ type: 'success', text: 'Duplicated row deleted successfully.' });
+                setMessage({ type: 'success', text: 'Duplicated row deleted and original values restored.' });
             };
 
             const updateRowValue = (index, field, value) => {
