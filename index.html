@@ -65,8 +65,6 @@
             const [unitPrice, setUnitPrice] = useState('');
             const [itemTotal, setItemTotal] = useState('');
             const [nextGroupId, setNextGroupId] = useState(1);
-            const [duplicateCount, setDuplicateCount] = useState(0);
-            const [lastSelectedRow, setLastSelectedRow] = useState(null);
             
             const fileInputRef = useRef(null);
 
@@ -118,8 +116,6 @@
                         
                         setInvoiceData(jsonData);
                         setSelectedRow(null);
-                        setDuplicateCount(0);
-                        setLastSelectedRow(null);
                         setMessage({ type: 'success', text: `Loaded ${jsonData.length} rows from ${file.name}` });
                     } catch (error) {
                         setMessage({ type: 'error', text: 'Error reading file: ' + error.message });
@@ -144,7 +140,7 @@
                 }
 
                 // Look for tariff numbers that start with 3
-                const tariffColumns = ['TARIFF NUM', 'TARIFF NUM_1', 'TARIFF NUM_5'];
+                const tariffColumns = ['TARIFF NUM', 'TARIFF NUM2', 'TARIFF NUM51'];
                 let tariffNumber = null;
                 
                 for (const col of tariffColumns) {
@@ -185,12 +181,6 @@
                     return;
                 }
 
-                // Reset duplicate count if we've selected a different row
-                if (lastSelectedRow !== selectedRow) {
-                    setDuplicateCount(0);
-                    setLastSelectedRow(selectedRow);
-                }
-
                 const rowToDuplicate = invoiceData[selectedRow];
                 const partNumber = rowToDuplicate.BuyerPartNumber;
                 
@@ -206,12 +196,10 @@
                 const newRow = { ...rowToDuplicate };
                 newRow.BuyerPartNumber = tariffResult.value;
                 newRow.SupplierPartNumber = tariffResult.value;
-                newRow._isDuplicate = true; // Mark as duplicate for deletion tracking
 
                 // Check if custom values were provided
                 const hasCustomValues = quantity !== '' || unitPrice !== '' || itemTotal !== '';
                 let newRowItemTotal = rowToDuplicate.ItemTotal; // Default to original
-                let subtractedQuantity = 0;
 
                 // Apply custom values if provided, otherwise keep original values
                 if (quantity !== '') {
@@ -241,37 +229,27 @@
                     updatedOriginalRow = { ...rowToDuplicate };
                     updatedOriginalRow.ItemTotal = (rowToDuplicate.ItemTotal || 0) - newRowItemTotal;
                     
-                    // Store the subtracted amount on the duplicate for restoration later
-                    newRow._subtractedItemTotal = newRowItemTotal;
-                    
                     // Also update quantity if only quantity was changed
                     if (quantity !== '' && unitPrice === '' && itemTotal === '') {
-                        subtractedQuantity = parseFloat(quantity);
-                        const remainingQty = (rowToDuplicate.Quantity || 0) - subtractedQuantity;
+                        const remainingQty = (rowToDuplicate.Quantity || 0) - parseFloat(quantity);
                         updatedOriginalRow.Quantity = remainingQty;
                         updatedOriginalRow.ItemTotal = remainingQty * (rowToDuplicate.UnitPrice || 0);
-                        newRow._subtractedQuantity = subtractedQuantity;
                     }
                 }
 
-                // Insert the updated original row and new row at the correct position
-                // to maintain creation order of duplicates
-                const insertPosition = selectedRow + duplicateCount + 1;
-                
+                // Insert the updated original row and new row
                 const newData = hasCustomValues ? [
                     ...invoiceData.slice(0, selectedRow),
                     updatedOriginalRow,
-                    ...invoiceData.slice(selectedRow + 1, insertPosition),
                     newRow,
-                    ...invoiceData.slice(insertPosition)
+                    ...invoiceData.slice(selectedRow + 1)
                 ] : [
-                    ...invoiceData.slice(0, insertPosition),
+                    ...invoiceData.slice(0, selectedRow + 1),
                     newRow,
-                    ...invoiceData.slice(insertPosition)
+                    ...invoiceData.slice(selectedRow + 1)
                 ];
 
                 setInvoiceData(newData);
-                setDuplicateCount(duplicateCount + 1);
                 
                 const materialLabel = materialType === 'aluminum' ? 'Aluminum' : 'Steel';
                 let messageText = tariffResult.usingDefault 
@@ -283,6 +261,7 @@
                 }
                 
                 setMessage({ type: 'success', text: messageText });
+                setSelectedRow(selectedRow + 1); // Select the newly created row
                 
                 // Clear the input fields after duplication
                 setQuantity('');
@@ -303,8 +282,6 @@
                     // Remove internal tracking properties
                     delete newRow._duplicateGroupId;
                     delete newRow._isDuplicate;
-                    delete newRow._subtractedItemTotal;
-                    delete newRow._subtractedQuantity;
                     
                     // Format date columns - convert to actual Date objects
                     const dateColumns = ['InvoiceDate', 'PO_Date', 'DateOfExport'];
@@ -365,48 +342,17 @@
                     return;
                 }
 
-                const newData = [...invoiceData];
-                
-                // If this duplicate had custom values that modified the original, restore them
-                if (rowToDelete._subtractedItemTotal !== undefined) {
-                    // Find the original row by searching backwards for the first non-duplicate
-                    let originalRowIndex = -1;
-                    for (let i = index - 1; i >= 0; i--) {
-                        if (!newData[i]._isDuplicate) {
-                            originalRowIndex = i;
-                            break;
-                        }
-                    }
-                    
-                    if (originalRowIndex !== -1) {
-                        // Restore the ItemTotal to the original row
-                        newData[originalRowIndex] = { ...newData[originalRowIndex] };
-                        newData[originalRowIndex].ItemTotal = (newData[originalRowIndex].ItemTotal || 0) + rowToDelete._subtractedItemTotal;
-                        
-                        // Restore the Quantity if it was also subtracted
-                        if (rowToDelete._subtractedQuantity !== undefined) {
-                            newData[originalRowIndex].Quantity = (newData[originalRowIndex].Quantity || 0) + rowToDelete._subtractedQuantity;
-                        }
-                    }
-                }
-                
-                // Remove the duplicate row
-                const finalData = newData.filter((_, i) => i !== index);
-                setInvoiceData(finalData);
+                const newData = invoiceData.filter((_, i) => i !== index);
+                setInvoiceData(newData);
                 
                 // Adjust selected row if necessary
                 if (selectedRow === index) {
                     setSelectedRow(null);
-                } else if (selectedRow !== null && index < selectedRow) {
+                } else if (selectedRow > index) {
                     setSelectedRow(selectedRow - 1);
                 }
                 
-                // Adjust duplicate count if we deleted a duplicate from the currently selected row
-                if (selectedRow !== null && index > selectedRow && duplicateCount > 0) {
-                    setDuplicateCount(duplicateCount - 1);
-                }
-                
-                setMessage({ type: 'success', text: 'Duplicated row deleted and original values restored.' });
+                setMessage({ type: 'success', text: 'Duplicated row deleted successfully.' });
             };
 
             const updateRowValue = (index, field, value) => {
@@ -430,7 +376,7 @@
             return (
                 <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-6">
                     <div className="max-w-7xl mx-auto">
-                        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+                        <div className="bg-white rounded-xl shadow-lg p-6 mb-6 sticky top-4 z-10">
                             <h1 className="text-3xl font-bold text-gray-800 mb-2">Invoice Line Duplicator</h1>
                             <p className="text-gray-600 mb-6">Upload an invoice file, edit values directly in the table, select a row to duplicate for Aluminum or Steel, and delete duplicated rows as needed</p>
                             
@@ -573,14 +519,8 @@
                                             {invoiceData.map((row, index) => (
                                                 <tr
                                                     key={index}
-                                                    onClick={() => {
-                                                        setSelectedRow(index);
-                                                        if (lastSelectedRow !== index) {
-                                                            setDuplicateCount(0);
-                                                            setLastSelectedRow(index);
-                                                        }
-                                                    }}
-                                                    className={`transition-colors cursor-pointer ${
+                                                    onClick={() => setSelectedRow(index)}
+                                                    className={`transition-colors ${
                                                         selectedRow === index
                                                             ? 'bg-blue-100'
                                                             : row._isDuplicate 
